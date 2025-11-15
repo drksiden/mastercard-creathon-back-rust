@@ -120,9 +120,17 @@ pub async fn handle_query(
     // 4. Log to audit
     let _ = log_query_audit(&state, &req.question, &sql, true, total_time).await;
     
+    // 5. Prepare response (optionally hide SQL)
+    // По умолчанию include_sql=true (для отладки), но можно скрыть
+    let response_sql = if req.include_sql {
+        sql.clone()
+    } else {
+        String::new()  // Пустая строка, поле будет пропущено в JSON
+    };
+    
     Ok(Json(QueryResponse {
         question: req.question,
-        sql,
+        sql: response_sql,
         data,
         execution_time_ms: total_time,
         row_count,

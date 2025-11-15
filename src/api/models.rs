@@ -9,12 +9,15 @@ pub struct QueryRequest {
     pub include_analysis: bool,  // Whether to include LLM analysis
     #[serde(default)]
     pub use_cache: bool,  // Whether to use cache (default: true)
+    #[serde(default)]
+    pub include_sql: bool,  // Whether to include SQL in response (default: true for debugging)
 }
 
 #[derive(Debug, Serialize)]
 pub struct QueryResponse {
     pub question: String,
-    pub sql: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub sql: String,  // SQL скрывается если include_sql=false
     pub data: Vec<serde_json::Value>,
     pub execution_time_ms: u64,
     pub row_count: usize,

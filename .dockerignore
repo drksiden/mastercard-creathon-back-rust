@@ -1,0 +1,13 @@
+target/
+.git/
+.gitignore
+.env
+.env.*
+*.md
+examples/
+test_*.sh
+*.py
+*.tsx
+*.json
+!migrations/*.sql
+
