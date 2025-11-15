@@ -1,4 +1,6 @@
 mod api;
+mod analysis;
+mod cache;
 mod config;
 mod db;
 mod error;

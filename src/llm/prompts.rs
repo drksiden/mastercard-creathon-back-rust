@@ -66,24 +66,35 @@ fn get_sql_rules() -> &'static str {
 4. You MUST only respond with valid SQL SELECT queries, nothing else
 5. If the question is not about database queries, return: SELECT 'Невозможно сгенерировать SQL для данного запроса.' as error;
 6. Use proper PostgreSQL syntax (not MySQL or other dialects)
-7. For date ranges with transaction_timestamp:
+
+CRITICAL OPTIMIZATION RULES (MUST FOLLOW):
+7. ALWAYS use aggregation (SUM, COUNT, AVG, MAX, MIN) or GROUP BY when querying large datasets
+8. ALWAYS include WHERE clause with time filter (transaction_timestamp) unless explicitly asking for all-time totals
+9. ALWAYS use LIMIT when returning individual rows (max 100 rows, prefer 10-20 for analysis)
+10. NEVER return raw transaction rows without aggregation - use GROUP BY, aggregation functions, or LIMIT
+11. For "show me transactions" type queries: Use GROUP BY with aggregation OR LIMIT 20, never return all rows
+12. For date ranges with transaction_timestamp:
    - Use: transaction_timestamp >= '2024-01-01' AND transaction_timestamp < '2025-01-01'
    - For "this year": EXTRACT(YEAR FROM transaction_timestamp) = EXTRACT(YEAR FROM CURRENT_DATE)
    - For "last month": DATE_TRUNC('month', transaction_timestamp) = DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
    - For "today": DATE(transaction_timestamp) = CURRENT_DATE
    - For "last 7 days": transaction_timestamp >= CURRENT_DATE - INTERVAL '7 days'
-4. For text fields (issuer_bank_name, mcc_category, merchant_city, etc.): Use ILIKE '%text%' for case-insensitive partial matching
-5. For transaction amounts: Use transaction_amount_kzt for KZT amounts, or original_amount for original currency
-6. For "top N": Add ORDER BY and LIMIT N
-7. For aggregations: Use appropriate functions (SUM, AVG, COUNT, etc.)
-8. For percentage calculations: Cast to FLOAT and multiply by 100
-9. Always include proper WHERE clauses for filters
-10. When filtering by currency: Use transaction_currency = 'KZT' (or other currency code: AMD, BYN, CNY, EUR, GEL, KGS, TRY, USD, UZS)
-11. When filtering by transaction_type: Use exact values: 'ATM_WITHDRAWAL', 'BILL_PAYMENT', 'ECOM', 'P2P_IN', 'P2P_OUT', 'POS', 'SALARY'
-12. When filtering by mcc_category: Use exact values like 'Dining & Restaurants', 'Grocery & Food Markets', etc. (case-sensitive)
-13. When filtering by pos_entry_mode: Use exact values: 'Contactless', 'ECOM', 'QR_Code', 'Swipe', or check for NULL
-14. When grouping by time periods: Use DATE_TRUNC('day', transaction_timestamp), DATE_TRUNC('month', transaction_timestamp), etc.
-15. End query with semicolon"#
+   - For "all time": Still use aggregation and LIMIT
+
+DATA RETRIEVAL RULES:
+13. For text fields (issuer_bank_name, mcc_category, merchant_city, etc.): Use ILIKE '%text%' for case-insensitive partial matching
+14. For transaction amounts: Use transaction_amount_kzt for KZT amounts, or original_amount for original currency
+15. For "top N": Add ORDER BY and LIMIT N (max 100)
+16. For aggregations: Use appropriate functions (SUM, AVG, COUNT, etc.) with GROUP BY
+17. For percentage calculations: Cast to FLOAT and multiply by 100
+18. Always include proper WHERE clauses for filters
+19. When filtering by currency: Use transaction_currency = 'KZT' (or other currency code: AMD, BYN, CNY, EUR, GEL, KGS, TRY, USD, UZS)
+20. When filtering by transaction_type: Use exact values: 'ATM_WITHDRAWAL', 'BILL_PAYMENT', 'ECOM', 'P2P_IN', 'P2P_OUT', 'POS', 'SALARY'
+21. When filtering by mcc_category: Use exact values like 'Dining & Restaurants', 'Grocery & Food Markets', etc. (case-sensitive)
+22. When filtering by pos_entry_mode: Use exact values: 'Contactless', 'ECOM', 'QR_Code', 'Swipe', or check for NULL
+23. When grouping by time periods: Use DATE_TRUNC('day', transaction_timestamp), DATE_TRUNC('month', transaction_timestamp), etc.
+24. Use window functions (RANK, ROW_NUMBER, LAG, LEAD) for advanced analytics when needed
+25. End query with semicolon"#
 }
 
 fn get_few_shot_examples() -> &'static str {

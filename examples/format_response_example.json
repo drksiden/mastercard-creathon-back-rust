@@ -1,0 +1,105 @@
+{
+  "example_response_with_analysis": {
+    "question": "Топ-5 категорий MCC по количеству транзакций",
+    "sql": "SELECT mcc_category, COUNT(*) as count FROM transactions GROUP BY mcc_category ORDER BY count DESC LIMIT 5;",
+    "data": [
+      {
+        "mcc_category": "Dining & Restaurants",
+        "count": 523
+      },
+      {
+        "mcc_category": "Grocery & Food Markets",
+        "count": 412
+      },
+      {
+        "mcc_category": "Fuel & Service Stations",
+        "count": 298
+      },
+      {
+        "mcc_category": "Electronics & Software",
+        "count": 187
+      },
+      {
+        "mcc_category": "Travel & Transportation",
+        "count": 156
+      }
+    ],
+    "execution_time_ms": 234,
+    "row_count": 5,
+    "cached": false,
+    "analysis": {
+      "headline": "Топ-5 категорий MCC: рестораны лидируют с 523 транзакциями",
+      "insights": [
+        {
+          "title": "Доминирование ресторанов",
+          "description": "Категория 'Dining & Restaurants' занимает первое место с 27% всех транзакций",
+          "significance": "High"
+        },
+        {
+          "title": "Высокая активность в продуктовых",
+          "description": "Grocery & Food Markets на втором месте с 412 транзакциями",
+          "significance": "Medium"
+        }
+      ],
+      "explanation": "Анализ показывает, что наибольшее количество транзакций приходится на категорию 'Dining & Restaurants' (523 транзакции, 27% от общего числа). Это указывает на высокую активность пользователей в ресторанах и кафе.",
+      "suggested_questions": [
+        "Показать динамику транзакций по ресторанам за последний месяц",
+        "Сравнить средний чек по категориям"
+      ],
+      "chart_type": "Bar",
+      "data": [
+        {
+          "mcc_category": "Dining & Restaurants",
+          "count": 523
+        },
+        {
+          "mcc_category": "Grocery & Food Markets",
+          "count": 412
+        },
+        {
+          "mcc_category": "Fuel & Service Stations",
+          "count": 298
+        },
+        {
+          "mcc_category": "Electronics & Software",
+          "count": 187
+        },
+        {
+          "mcc_category": "Travel & Transportation",
+          "count": 156
+        }
+      ]
+    }
+  },
+  "how_to_use": {
+    "for_tables": {
+      "description": "Используйте response.data напрямую для таблиц",
+      "example": "response.data.forEach(row => { /* render table row */ })"
+    },
+    "for_charts": {
+      "description": "Используйте response.analysis.chart_type и response.data",
+      "bar_chart": {
+        "chart_type": "Bar",
+        "data_format": "Array of objects with keys for X and Y axes",
+        "example": "response.data.map(d => ({ name: d.mcc_category, value: d.count }))"
+      },
+      "line_chart": {
+        "chart_type": "Line",
+        "data_format": "Array of objects with time and value",
+        "example": "response.data.map(d => ({ date: d.date, count: d.count }))"
+      },
+      "pie_chart": {
+        "chart_type": "Pie",
+        "data_format": "Array of objects with name and value",
+        "example": "response.data.map(d => ({ name: d.currency, value: d.count }))"
+      }
+    },
+    "for_text": {
+      "description": "Используйте response.analysis для текстового вывода",
+      "headline": "response.analysis.headline",
+      "explanation": "response.analysis.explanation",
+      "insights": "response.analysis.insights"
+    }
+  }
+}
+

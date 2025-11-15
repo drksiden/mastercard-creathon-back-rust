@@ -38,6 +38,8 @@ chrono = { version = "0.4", features = ["serde"] }
 # Utils
 uuid = { version = "1.0", features = ["v4", "serde"] }
 futures-util = "0.3"
+async-trait = "0.1"
+rand = "0.8"
 
 [dev-dependencies]
 reqwest = "0.11"
