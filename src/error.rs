@@ -15,9 +15,11 @@ pub enum AppError {
     LLM(#[from] anyhow::Error),
     
     #[error("Invalid SQL query: {0}")]
+    #[allow(dead_code)]
     InvalidSQL(String),
     
     #[error("Configuration error: {0}")]
+    #[allow(dead_code)]
     Config(String),
 }
 

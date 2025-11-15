@@ -1,5 +1,14 @@
 use crate::config::Config;
 use anyhow::Result;
+use rig::providers::ollama::{Client as OllamaClient, ClientBuilder};
+use rig::providers::gemini::Client as GeminiClient;
+use rig::completion::CompletionRequest;
+use rig::completion::request::CompletionModel;
+use rig::completion::message::AssistantContent;
+use rig::message::{Message, UserContent};
+use rig::one_or_many::OneOrMany;
+use rig::client::completion::CompletionClient;
+use std::sync::Arc;
 
 pub struct LLMClient {
     provider: LLMProvider,
@@ -7,30 +16,58 @@ pub struct LLMClient {
 
 enum LLMProvider {
     Ollama {
-        client: reqwest::Client,
-        url: String,
+        client: Arc<OllamaClient>,
         model: String,
     },
     OpenAI {
-        // Реализуете позже если нужно
+        // TODO: Реализовать позже если нужно
+        #[allow(dead_code)]
         api_key: String,
+    },
+    Gemini {
+        client: Arc<GeminiClient>,
+        model: String,
     },
 }
 
 impl LLMClient {
     pub async fn new(config: &Config) -> Result<Self> {
         let provider = match config.llm_provider.as_str() {
-            "ollama" => LLMProvider::Ollama {
-                client: reqwest::Client::new(),
-                url: config.ollama_url.clone(),
-                model: config.ollama_model.clone(),
-            },
+            "ollama" => {
+                // Создаем Ollama клиент через rig-core
+                let client = if config.ollama_url == "http://localhost:11434" {
+                    // Используем дефолтный URL
+                    OllamaClient::new()
+                } else {
+                    // Используем кастомный URL
+                    ClientBuilder::new()
+                        .base_url(&config.ollama_url)
+                        .build()
+                };
+                
+                LLMProvider::Ollama {
+                    client: Arc::new(client),
+                    model: config.ollama_model.clone(),
+                }
+            }
             "openai" => {
                 let api_key = config.openai_api_key.clone()
                     .ok_or_else(|| anyhow::anyhow!("OPENAI_API_KEY not set"))?;
                 LLMProvider::OpenAI { api_key }
-            },
-            _ => return Err(anyhow::anyhow!("Unknown LLM provider")),
+            }
+            "gemini" => {
+                let api_key = config.gemini_api_key.clone()
+                    .ok_or_else(|| anyhow::anyhow!("GEMINI_API_KEY or LLM_API_KEY not set"))?;
+                // Создаем Gemini клиент через rig-core
+                // rig-core использует переменную окружения GEMINI_API_KEY
+                std::env::set_var("GEMINI_API_KEY", &api_key);
+                let client = GeminiClient::from_env();
+                LLMProvider::Gemini {
+                    client: Arc::new(client),
+                    model: config.gemini_model.clone(),
+                }
+            }
+            _ => return Err(anyhow::anyhow!("Unknown LLM provider: {}. Supported: ollama, openai, gemini", config.llm_provider)),
         };
         
         Ok(Self { provider })
@@ -40,12 +77,15 @@ impl LLMClient {
         let prompt = super::prompts::build_sql_generation_prompt(question);
         
         let raw_response = match &self.provider {
-            LLMProvider::Ollama { client, url, model } => {
-                self.call_ollama(client, url, model, &prompt).await?
+            LLMProvider::Ollama { client, model } => {
+                self.call_ollama_with_rig(client, model, &prompt).await?
             }
             LLMProvider::OpenAI { .. } => {
                 // TODO: Implement OpenAI fallback
                 return Err(anyhow::anyhow!("OpenAI not implemented yet"));
+            }
+            LLMProvider::Gemini { client, model } => {
+                self.call_gemini_with_rig(client, model, &prompt).await?
             }
         };
         
@@ -57,54 +97,116 @@ impl LLMClient {
         Ok(cleaned)
     }
     
-    async fn call_ollama(
+    async fn call_ollama_with_rig(
         &self,
-        client: &reqwest::Client,
-        url: &str,
+        client: &Arc<OllamaClient>,
         model: &str,
         prompt: &str,
     ) -> Result<String> {
-        #[derive(serde::Serialize)]
-        struct OllamaRequest {
-            model: String,
-            prompt: String,
-            stream: bool,
-            options: Options,
-        }
+        // Получаем ссылку из Arc и создаем completion модель
+        let comp_model = client.as_ref().completion_model(model);
         
-        #[derive(serde::Serialize)]
-        struct Options {
-            temperature: f32,
-            top_p: f32,
-            num_predict: i32,
-        }
-        
-        #[derive(serde::Deserialize)]
-        struct OllamaResponse {
-            response: String,
-        }
-        
-        let request = OllamaRequest {
-            model: model.to_string(),
-            prompt: prompt.to_string(),
-            stream: false,
-            options: Options {
-                temperature: 0.1,  // Low temperature for deterministic SQL
-                top_p: 0.9,
-                num_predict: 512,
-            },
+        // Создаем запрос на генерацию через rig-core
+        let request = CompletionRequest {
+            preamble: Some(
+                "You are an expert PostgreSQL database architect. Generate ONLY SQL queries, no explanations."
+                    .to_string(),
+            ),
+            chat_history: OneOrMany::one(Message::User {
+                content: OneOrMany::one(UserContent::text(prompt)),
+            }),
+            documents: vec![],
+            tools: vec![],
+            temperature: Some(0.1),  // Low temperature for deterministic SQL
+            max_tokens: Some(512),
+            tool_choice: None,
+            additional_params: None,
         };
         
-        let response = client
-            .post(format!("{}/api/generate", url))
-            .json(&request)
-            .timeout(std::time::Duration::from_secs(30))
-            .send()
-            .await?
-            .json::<OllamaResponse>()
-            .await?;
+        // Отправляем запрос через rig-core
+        let response = comp_model
+            .completion(request)
+            .await
+            .map_err(|e| anyhow::anyhow!("LLM error: {}", e))?;
         
-        Ok(response.response)
+        // Извлекаем текст из choice (OneOrMany<AssistantContent>)
+        // OneOrMany реализует IntoIterator, можно итерировать напрямую
+        let mut text_parts = Vec::new();
+        for content in response.choice.iter() {
+            // AssistantContent может быть Text, ToolCall, Reasoning и т.д.
+            if let AssistantContent::Text(text) = content {
+                // Text имеет поле text: String
+                text_parts.push(text.text.clone());
+            }
+        }
+        
+        let text = text_parts.join(" ").trim().to_string();
+        
+        if text.is_empty() {
+            return Err(anyhow::anyhow!("Empty response from LLM"));
+        }
+        
+        Ok(text)
+    }
+    
+    async fn call_gemini_with_rig(
+        &self,
+        client: &Arc<GeminiClient>,
+        model: &str,
+        prompt: &str,
+    ) -> Result<String> {
+        // Получаем ссылку из Arc и создаем completion модель
+        let comp_model = client.as_ref().completion_model(model);
+        
+        // Создаем запрос на генерацию через rig-core
+        // Gemini API требует generationConfig в additional_params
+        let mut additional_params = serde_json::Map::new();
+        additional_params.insert(
+            "generationConfig".to_string(),
+            serde_json::json!({
+                "temperature": 0.1,
+                "maxOutputTokens": 512,
+                "topP": 0.95,
+                "topK": 40
+            })
+        );
+        
+        let request = CompletionRequest {
+            preamble: Some(
+                "You are an expert PostgreSQL database architect. Generate ONLY SQL queries, no explanations."
+                    .to_string(),
+            ),
+            chat_history: OneOrMany::one(Message::User {
+                content: OneOrMany::one(UserContent::text(prompt)),
+            }),
+            documents: vec![],
+            tools: vec![],
+            temperature: Some(0.1),  // Low temperature for deterministic SQL
+            max_tokens: Some(512),
+            tool_choice: None,
+            additional_params: Some(serde_json::Value::Object(additional_params)),
+        };
+        
+        // Отправляем запрос через rig-core
+        let response = comp_model
+            .completion(request)
+            .await
+            .map_err(|e| anyhow::anyhow!("Gemini API error: {}", e))?;
+        
+        // Извлекаем текст из choice (OneOrMany<AssistantContent>)
+        let mut text_parts = Vec::new();
+        for content in response.choice.iter() {
+            if let AssistantContent::Text(text) = content {
+                text_parts.push(text.text.clone());
+            }
+        }
+        
+        let text = text_parts.join(" ").trim().to_string();
+        
+        if text.is_empty() {
+            return Err(anyhow::anyhow!("Empty response from Gemini API"));
+        }
+        
+        Ok(text)
     }
 }
-

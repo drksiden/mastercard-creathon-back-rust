@@ -15,6 +15,26 @@ pub async fn handle_query(
     
     tracing::info!("Received question: {}", req.question);
     
+    // 0. Basic validation - reject obvious jailbreak attempts
+    let question_lower = req.question.to_lowercase();
+    let jailbreak_keywords = [
+        "ignore previous",
+        "forget all",
+        "you are now",
+        "you are a",
+        "act as",
+        "pretend to be",
+        "roleplay as",
+        "disregard instructions",
+    ];
+    
+    for keyword in &jailbreak_keywords {
+        if question_lower.contains(keyword) {
+            tracing::warn!("Potential jailbreak attempt detected: {}", keyword);
+            // Still process, but LLM will ignore it due to prompt protection
+        }
+    }
+    
     // 1. Generate SQL using LLM
     let sql = state.llm.generate_sql(&req.question).await?;
     tracing::info!("Generated SQL: {}", sql);

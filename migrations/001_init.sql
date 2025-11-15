@@ -10,14 +10,42 @@ CREATE TABLE transactions (
     issuer_bank_name VARCHAR(255),
     merchant_id INTEGER,
     merchant_mcc INTEGER,
-    mcc_category VARCHAR(255),
+    mcc_category VARCHAR(255) CHECK (mcc_category IN (
+        'Clothing & Apparel',
+        'Dining & Restaurants',
+        'Electronics & Software',
+        'Fuel & Service Stations',
+        'General Retail & Department',
+        'Grocery & Food Markets',
+        'Hobby, Books, Sporting Goods',
+        'Home Furnishings & Supplies',
+        'Pharmacies & Health',
+        'Services (Other)',
+        'Travel & Transportation',
+        'Unknown',
+        'Utilities & Bill Payments'
+    )),
     merchant_city VARCHAR(255),
-    transaction_type VARCHAR(50),
+    transaction_type VARCHAR(50) CHECK (transaction_type IN (
+        'ATM_WITHDRAWAL',
+        'BILL_PAYMENT',
+        'ECOM',
+        'P2P_IN',
+        'P2P_OUT',
+        'POS',
+        'SALARY'
+    )),
     transaction_amount_kzt NUMERIC(15, 2),
     original_amount NUMERIC(15, 2),
-    transaction_currency VARCHAR(3),
-    acquirer_country_iso VARCHAR(3),
-    pos_entry_mode VARCHAR(50),
+    transaction_currency VARCHAR(3) CHECK (transaction_currency IN (
+        'AMD', 'BYN', 'CNY', 'EUR', 'GEL', 'KGS', 'KZT', 'TRY', 'USD', 'UZS'
+    )),
+    acquirer_country_iso VARCHAR(3) CHECK (acquirer_country_iso IN (
+        'ARM', 'BLR', 'CHN', 'GEO', 'ITA', 'KAZ', 'KGZ', 'TUR', 'USA', 'UZB'
+    )),
+    pos_entry_mode VARCHAR(50) CHECK (pos_entry_mode IN (
+        'Contactless', 'ECOM', 'QR_Code', 'Swipe'
+    ) OR pos_entry_mode IS NULL),
     wallet_type VARCHAR(50)
 );
 
@@ -31,6 +59,8 @@ CREATE INDEX idx_transactions_card_id ON transactions(card_id);
 CREATE INDEX idx_transactions_issuer_bank_name ON transactions(issuer_bank_name);
 CREATE INDEX idx_transactions_merchant_city ON transactions(merchant_city);
 CREATE INDEX idx_transactions_transaction_id ON transactions(transaction_id);
+CREATE INDEX idx_transactions_transaction_currency ON transactions(transaction_currency);
+CREATE INDEX idx_transactions_acquirer_country_iso ON transactions(acquirer_country_iso);
 
 -- Audit log for tracking queries
 CREATE TABLE query_audit_log (
@@ -45,17 +75,30 @@ CREATE TABLE query_audit_log (
 );
 
 -- Generate mock transactions
--- Sample MCC categories
 DO $$
 DECLARE
-    mcc_categories VARCHAR[] := ARRAY['Retail', 'Restaurants', 'Gas Stations', 'Hotels', 'Airlines', 'Entertainment', 'Groceries', 'Pharmacy', 'Online Services', 'Transportation'];
-    transaction_types VARCHAR[] := ARRAY['Purchase', 'Refund', 'Authorization', 'Reversal'];
-    wallet_types VARCHAR[] := ARRAY['Apple Pay', 'Google Pay', 'Samsung Pay', 'Contactless', NULL];
+    mcc_categories VARCHAR[] := ARRAY[
+        'Clothing & Apparel',
+        'Dining & Restaurants',
+        'Electronics & Software',
+        'Fuel & Service Stations',
+        'General Retail & Department',
+        'Grocery & Food Markets',
+        'Hobby, Books, Sporting Goods',
+        'Home Furnishings & Supplies',
+        'Pharmacies & Health',
+        'Services (Other)',
+        'Travel & Transportation',
+        'Unknown',
+        'Utilities & Bill Payments'
+    ];
+    transaction_types VARCHAR[] := ARRAY['ATM_WITHDRAWAL', 'BILL_PAYMENT', 'ECOM', 'P2P_IN', 'P2P_OUT', 'POS', 'SALARY'];
+    wallet_types VARCHAR[] := ARRAY['Apple Pay', 'Google Pay', 'Samsung Pay', NULL];
     issuer_banks VARCHAR[] := ARRAY['Halyk Bank', 'Kaspi Bank', 'ForteBank', 'Jusan Bank', 'Eurasian Bank', 'Bank CenterCredit'];
     cities VARCHAR[] := ARRAY['Almaty', 'Astana', 'Shymkent', 'Karaganda', 'Aktobe', 'Taraz', 'Pavlodar', 'Oskemen'];
-    currencies VARCHAR[] := ARRAY['KZT', 'USD', 'EUR', 'RUB'];
-    countries VARCHAR[] := ARRAY['KZ', 'RU', 'US', 'GB', 'DE', 'FR'];
-    pos_modes VARCHAR[] := ARRAY['Chip', 'Contactless', 'Magnetic Stripe', 'Manual Entry'];
+    currencies VARCHAR[] := ARRAY['AMD', 'BYN', 'CNY', 'EUR', 'GEL', 'KGS', 'KZT', 'TRY', 'USD', 'UZS'];
+    countries VARCHAR[] := ARRAY['ARM', 'BLR', 'CHN', 'GEO', 'ITA', 'KAZ', 'KGZ', 'TUR', 'USA', 'UZB'];
+    pos_modes VARCHAR[] := ARRAY['Contactless', 'ECOM', 'QR_Code', 'Swipe', NULL];
 BEGIN
     -- Generate 5000 mock transactions
     FOR i IN 1..5000 LOOP
@@ -91,9 +134,8 @@ BEGIN
             CASE WHEN random() > 0.3 THEN (random() * 100000 + 100)::NUMERIC(15, 2) ELSE NULL END,
             currencies[floor(random() * array_length(currencies, 1) + 1)],
             countries[floor(random() * array_length(countries, 1) + 1)],
-            pos_modes[floor(random() * array_length(pos_modes, 1) + 1)],
+            pos_modes[floor(random() * (array_length(pos_modes, 1) + 1))],
             wallet_types[floor(random() * (array_length(wallet_types, 1) + 1))]
         );
     END LOOP;
 END $$;
-

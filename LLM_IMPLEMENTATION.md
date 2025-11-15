@@ -2,120 +2,164 @@
 
 ## Текущая реализация
 
-**Я НЕ использовал rig-core.** Вместо этого используется простой HTTP клиент через `reqwest` для прямого обращения к Ollama API.
+**Используется `rig-core` версии 0.24** - универсальная библиотека для работы с различными LLM провайдерами.
 
-### Почему так?
+### Почему rig-core?
 
-1. **Простота**: Ollama предоставляет простой REST API
-2. **Меньше зависимостей**: Не нужна дополнительная библиотека
-3. **Гибкость**: Легко добавить поддержку других провайдеров (OpenAI, Anthropic и т.д.)
+#### ✅ Преимущества использования rig-core:
+
+1. **Типобезопасность**
+   - Все типы проверяются на этапе компиляции
+   - Невозможно отправить неправильный запрос
+   - Автодополнение в IDE
+
+2. **Унифицированный API**
+   - Один интерфейс для разных провайдеров (Ollama, OpenAI, Anthropic, Gemini и т.д.)
+   - Легко переключиться между провайдерами
+   - Единый формат запросов и ответов
+
+3. **Встроенная поддержка streaming**
+   - Готовая инфраструктура для потоковой передачи ответов
+   - Можно легко добавить streaming в будущем
+
+4. **Лучшая обработка ошибок**
+   - Типизированные ошибки
+   - Четкие сообщения об ошибках
+   - Встроенная обработка сетевых ошибок
+
+5. **Активная поддержка**
+   - Регулярные обновления
+   - Поддержка новых моделей и провайдеров
+   - Сообщество разработчиков
+
+6. **Высокоуровневый API**
+   - Не нужно вручную формировать HTTP запросы
+   - Автоматическая сериализация/десериализация
+   - Удобные методы для работы с промптами
+
+7. **Расширяемость**
+   - Легко добавить поддержку новых провайдеров
+   - Гибкая система промптов и сообщений
+   - Поддержка функций (function calling)
 
 ### Как это работает сейчас:
 
 ```rust
 // src/llm/client.rs
 
-// 1. Создаем HTTP клиент
-let client = reqwest::Client::new();
+// 1. Создаем Ollama клиент через rig-core
+let client = OllamaClient::new();  // или ClientBuilder для кастомного URL
 
-// 2. Формируем запрос к Ollama API
-POST http://localhost:11434/api/generate
-{
-  "model": "llama2",
-  "prompt": "...",
-  "stream": false,
-  "options": {
-    "temperature": 0.1,
-    "top_p": 0.9,
-    "num_predict": 512
-  }
-}
+// 2. Получаем completion модель
+let comp_model = client.completion_model("llama2");
 
-// 3. Получаем ответ
-{
-  "response": "SELECT COUNT(*) FROM transactions;"
+// 3. Формируем запрос через унифицированный API
+let request = CompletionRequest {
+    preamble: Some("You are an expert PostgreSQL database architect...".to_string()),
+    chat_history: OneOrMany::one(Message::User {
+        content: OneOrMany::one(UserContent::text(prompt)),
+    }),
+    temperature: Some(0.1),
+    max_tokens: Some(512),
+    // ...
+};
+
+// 4. Отправляем запрос
+let response = comp_model.completion(request).await?;
+
+// 5. Извлекаем текст из ответа
+for content in response.choice.iter() {
+    if let AssistantContent::Text(text) = content {
+        // Получаем текст
+    }
 }
 ```
 
-## Альтернативные подходы
+### Архитектура с rig-core:
 
-### Вариант 1: Текущий (HTTP через reqwest) ✅ РЕКОМЕНДУЕТСЯ
+```
+User Question
+    ↓
+build_sql_generation_prompt()  // Формирует промпт с схемой БД
+    ↓
+LLMClient::generate_sql()
+    ↓
+call_ollama_with_rig()  // rig-core API
+    ├─ OllamaClient::new()  // Создание клиента
+    ├─ client.completion_model()  // Получение модели
+    ├─ CompletionRequest  // Унифицированный запрос
+    └─ comp_model.completion()  // Отправка запроса
+    ↓
+clean_sql_response()  // Убирает markdown, лишние символы
+    ↓
+validate_sql()  // Проверяет, что это только SELECT
+    ↓
+SQL Query → Database
+```
+
+## Сравнение подходов
+
+### Вариант 1: rig-core ✅ ТЕКУЩАЯ РЕАЛИЗАЦИЯ
 
 **Плюсы:**
-- ✅ Простота
-- ✅ Нет лишних зависимостей
-- ✅ Работает с любым Ollama API
-- ✅ Легко добавить streaming
+- ✅ Типобезопасность на этапе компиляции
+- ✅ Унифицированный API для разных провайдеров
+- ✅ Легко переключиться на OpenAI/Anthropic
+- ✅ Встроенная поддержка streaming
+- ✅ Активная поддержка и обновления
+- ✅ Лучшая обработка ошибок
+- ✅ Высокоуровневый API
 
 **Минусы:**
-- ⚠️ Нужно вручную формировать запросы
+- ⚠️ Дополнительная зависимость (но оправдана)
 
 **Код:**
 ```rust
 // Уже реализовано в src/llm/client.rs
+use rig::providers::ollama::Client as OllamaClient;
+use rig::completion::CompletionRequest;
 ```
 
-### Вариант 2: rig-core (из плана)
+### Вариант 2: Прямой HTTP через reqwest (старый подход)
 
 **Плюсы:**
-- ✅ Более высокоуровневый API
-- ✅ Встроенная поддержка streaming
-- ✅ Типобезопасность
+- ✅ Меньше зависимостей
+- ✅ Полный контроль над запросами
 
 **Минусы:**
-- ⚠️ Дополнительная зависимость
-- ⚠️ Может быть избыточно для простых случаев
-
-**Если хотите использовать rig-core:**
-
-```toml
-# Cargo.toml
-[dependencies]
-rig-core = "0.2"
-```
-
-```rust
-// Пример использования rig-core
-use rig_core::Client;
-
-let client = Client::new("http://localhost:11434");
-let response = client.generate("llama2", prompt).await?;
-```
+- ❌ Нужно вручную формировать запросы
+- ❌ Нет типобезопасности
+- ❌ Сложнее переключаться между провайдерами
+- ❌ Нужно вручную обрабатывать ошибки
 
 ### Вариант 3: ollama-rs (специализированная библиотека)
 
 **Плюсы:**
 - ✅ Специально для Ollama
 - ✅ Типобезопасный API
-- ✅ Поддержка streaming
 
 **Минусы:**
-- ⚠️ Только для Ollama (не универсально)
+- ❌ Только для Ollama (не универсально)
+- ❌ Сложнее добавить поддержку других провайдеров
 
-```toml
-[dependencies]
-ollama-rs = "0.1"
+## Переключение между провайдерами
+
+С `rig-core` очень легко переключиться между провайдерами:
+
+### Ollama (текущий):
+```env
+LLM_PROVIDER=ollama
+OLLAMA_URL=http://localhost:11434
+OLLAMA_MODEL=llama2
 ```
 
-```rust
-use ollama_rs::Ollama;
-
-let ollama = Ollama::default();
-let response = ollama.generate("llama2", prompt).await?;
+### OpenAI (будущее):
+```env
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
 ```
 
-## Рекомендация
-
-**Оставить текущую реализацию (HTTP через reqwest)** потому что:
-1. Уже работает
-2. Просто и понятно
-3. Легко расширять
-4. Нет лишних зависимостей
-
-**Но можно улучшить:**
-- Добавить streaming поддержку
-- Добавить retry логику
-- Добавить кэширование промптов
+Код остается практически тем же, меняется только инициализация клиента!
 
 ## Какие запросы будут работать?
 
@@ -131,7 +175,7 @@ let response = ollama.generate("llama2", prompt).await?;
 {"question": "Топ 5 мерчантов по объему"}
 → SELECT merchant_id, SUM(transaction_amount_kzt) as total 
   FROM transactions 
-  WHERE transaction_type = 'Purchase' 
+  WHERE transaction_type = 'POS' 
   GROUP BY merchant_id 
   ORDER BY total DESC 
   LIMIT 5;
@@ -146,8 +190,8 @@ let response = ollama.generate("llama2", prompt).await?;
 {"question": "Транзакции по картам Halyk Bank"}
 → SELECT * FROM transactions WHERE issuer_bank_name ILIKE '%halyk%';
 
-{"question": "Транзакции в категории Retail"}
-→ SELECT * FROM transactions WHERE mcc_category = 'Retail';
+{"question": "Транзакции в категории 'General Retail & Department'"}
+→ SELECT * FROM transactions WHERE mcc_category = 'General Retail & Department';
 ```
 
 ### ✅ Агрегации (работают хорошо)
@@ -157,12 +201,12 @@ let response = ollama.generate("llama2", prompt).await?;
 → SELECT AVG(transaction_amount_kzt) as avg_amount 
   FROM transactions 
   WHERE merchant_city ILIKE '%алматы%' 
-  AND transaction_type = 'Purchase';
+  AND transaction_type = 'POS';
 
 {"question": "Объем транзакций по категориям"}
 → SELECT mcc_category, SUM(transaction_amount_kzt) as total 
   FROM transactions 
-  WHERE transaction_type = 'Purchase' 
+  WHERE transaction_type = 'POS' 
   GROUP BY mcc_category;
 ```
 
@@ -199,7 +243,7 @@ let response = ollama.generate("llama2", prompt).await?;
 ### По мерчантам:
 - ✅ "Топ 10 мерчантов по количеству транзакций"
 - ✅ "Транзакции в городе Алматы"
-- ✅ "Мерчанты категории Retail"
+- ✅ "Мерчанты категории 'General Retail & Department'"
 
 ### По банкам:
 - ✅ "Транзакции по картам Halyk Bank"
@@ -209,12 +253,14 @@ let response = ollama.generate("llama2", prompt).await?;
 ### По категориям:
 - ✅ "Объем транзакций по категориям MCC"
 - ✅ "Топ категории по количеству транзакций"
-- ✅ "Средний чек в категории Restaurants"
+- ✅ "Средний чек в категории 'Dining & Restaurants'"
 
 ### По типам транзакций:
-- ✅ "Количество возвратов (Refund)"
-- ✅ "Соотношение Purchase и Refund"
-- ✅ "Транзакции типа Authorization"
+- ✅ "Количество ATM_WITHDRAWAL транзакций"
+- ✅ "Сравнение POS и ECOM транзакций"
+- ✅ "P2P транзакции (входящие и исходящие)"
+- ✅ "BILL_PAYMENT транзакции"
+- ✅ "SALARY транзакции"
 
 ### По кошелькам:
 - ✅ "Транзакции через Apple Pay"
@@ -224,16 +270,20 @@ let response = ollama.generate("llama2", prompt).await?;
 ### Комбинированные:
 - ✅ "Средний чек для карт Halyk Bank в Алматы за последний месяц"
 - ✅ "Топ 5 городов по объему транзакций через Apple Pay"
-- ✅ "Дневной объем транзакций в категории Retail за последние 30 дней"
+- ✅ "Дневной объем транзакций в категории 'General Retail & Department' за последние 30 дней"
 
 ## Улучшения, которые можно добавить
 
 ### 1. Streaming ответов
 
+С `rig-core` это очень просто:
+
 ```rust
-// Для больших ответов можно стримить
+// rig-core поддерживает streaming из коробки
 async fn generate_sql_streaming(&self, question: &str) -> impl Stream<Item = String> {
-    // Реализация streaming через Ollama API
+    let request = CompletionRequest { /* ... */ };
+    let stream = comp_model.completion_stream(request).await?;
+    // Обработка потока
 }
 ```
 
@@ -242,7 +292,7 @@ async fn generate_sql_streaming(&self, question: &str) -> impl Stream<Item = Str
 ```rust
 async fn call_ollama_with_retry(&self, ...) -> Result<String> {
     for attempt in 1..=3 {
-        match self.call_ollama(...).await {
+        match self.call_ollama_with_rig(...).await {
             Ok(result) => return Ok(result),
             Err(e) if attempt < 3 => {
                 tokio::time::sleep(Duration::from_secs(attempt)).await;
@@ -267,33 +317,51 @@ struct LLMClient {
 // Кэшируем результаты для одинаковых вопросов
 ```
 
-### 4. Лучшая обработка ошибок LLM
+### 4. Переключение на OpenAI
+
+Очень просто с `rig-core`:
 
 ```rust
-// Если LLM вернул не SQL, попробуем извлечь SQL из ответа
-fn extract_sql_from_response(response: &str) -> Option<String> {
-    // Поиск SQL в markdown блоках ```sql ... ```
-    // или просто поиск SELECT ... FROM ...
+// В src/llm/client.rs уже есть заготовка для OpenAI
+LLMProvider::OpenAI { api_key } => {
+    // Используем rig::providers::openai::Client
+    // API остается тем же!
 }
 ```
 
-## Текущая архитектура
+### 5. Function Calling
 
+`rig-core` поддерживает function calling:
+
+```rust
+let request = CompletionRequest {
+    tools: vec![
+        Tool {
+            name: "execute_sql".to_string(),
+            description: "Execute SQL query".to_string(),
+            // ...
+        }
+    ],
+    // ...
+};
 ```
-User Question
-    ↓
-build_sql_generation_prompt()  // Формирует промпт с схемой БД
-    ↓
-call_ollama()  // HTTP POST к Ollama API
-    ↓
-clean_sql_response()  // Убирает markdown, лишние символы
-    ↓
-validate_sql()  // Проверяет, что это только SELECT
-    ↓
-SQL Query → Database
+
+## Зависимости
+
+```toml
+# Cargo.toml
+[dependencies]
+rig-core = "0.24"  # Универсальная библиотека для LLM
 ```
 
 ## Итог
 
-**Текущая реализация хорошая и достаточная.** Можно оставить как есть или добавить улучшения по мере необходимости.
+**Текущая реализация с `rig-core` - оптимальный выбор** потому что:
 
+1. ✅ Типобезопасность и надежность
+2. ✅ Универсальность - легко переключиться на другие провайдеры
+3. ✅ Активная поддержка и развитие
+4. ✅ Готовые возможности для расширения (streaming, function calling)
+5. ✅ Чистый и понятный код
+
+**Рекомендация:** Оставить текущую реализацию и развивать её дальше, добавляя новые возможности по мере необходимости.

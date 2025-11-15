@@ -4,6 +4,7 @@
 use crate::error::AppError;
 use sqlx::PgPool;
 
+#[allow(dead_code)]
 pub async fn generate_additional_transactions(
     pool: &PgPool,
     count: i32,

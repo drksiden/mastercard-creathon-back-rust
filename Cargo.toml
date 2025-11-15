@@ -13,7 +13,8 @@ tower-http = { version = "0.5", features = ["fs", "cors", "trace"] }
 # Database
 sqlx = { version = "0.7", features = ["postgres", "runtime-tokio-rustls", "chrono", "uuid", "migrate"] }
 
-# LLM - выберите один или оба для fallback
+# LLM - используем rig-core для работы с LLM
+rig-core = "0.24"
 reqwest = { version = "0.11", features = ["json"] }
 
 # Serialization
