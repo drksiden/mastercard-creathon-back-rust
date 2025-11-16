@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::utils::language::{detect_language, Language};
 use anyhow::Result;
 use rig::completion::CompletionRequest;
 use rig::completion::request::CompletionModel;
@@ -24,14 +25,15 @@ impl AnalysisClient {
         sql: &str,
         data: &[serde_json::Value],
     ) -> Result<AnalysisResult> {
+        let language = detect_language(question);
         // Build prompt for analysis
-        let prompt = build_analysis_prompt(question, sql, data);
+        let prompt = build_analysis_prompt(question, sql, data, &language);
         
         // Generate analysis using LLM
         let analysis_text = self.generate_analysis(&prompt).await?;
         
         // Parse structured response
-        let result = parse_analysis_response(&analysis_text, data)?;
+        let result = parse_analysis_response(&analysis_text, data, &language)?;
         
         Ok(result)
     }
@@ -184,7 +186,7 @@ impl AnalysisClient {
 
 }
 
-fn build_analysis_prompt(question: &str, sql: &str, data: &[serde_json::Value]) -> String {
+fn build_analysis_prompt(question: &str, sql: &str, data: &[serde_json::Value], language: &Language) -> String {
     let data_summary = if data.len() <= 10 {
         format!("Full data: {}", serde_json::to_string(data).unwrap_or_default())
     } else {
@@ -195,8 +197,16 @@ fn build_analysis_prompt(question: &str, sql: &str, data: &[serde_json::Value]) 
         )
     };
     
+    let (language_name, language_instruction) = match language {
+        Language::Russian => ("Russian", "Отвечайте на русском языке. Все тексты (headline, insights, explanation, suggested_questions) должны быть на русском языке."),
+        Language::English => ("English", "Respond in English. All texts (headline, insights, explanation, suggested_questions) should be in English."),
+        Language::Kazakh => ("Kazakh", "Қазақ тілінде жауап беріңіз. Барлық мәтіндер (headline, insights, explanation, suggested_questions) қазақ тілінде болуы керек."),
+    };
+    
     format!(
         r#"You are a data analyst. Analyze the database query results and provide insights in JSON format.
+
+{language_instruction}
 
 USER QUESTION: {question}
 
@@ -209,31 +219,36 @@ CRITICAL: You MUST return ONLY valid JSON, no markdown, no code blocks, no expla
 
 Required JSON structure:
 {{
-  "headline": "Main answer to the question in Russian (1-2 sentences)",
+  "headline": "Main answer to the question in {language_name} (1-2 sentences)",
   "insights": [
     {{
-      "title": "Key finding title in Russian",
-      "description": "Detailed explanation in Russian",
+      "title": "Key finding title in {language_name}",
+      "description": "Detailed explanation in {language_name}",
       "significance": "High"
     }}
   ],
-  "explanation": "Detailed explanation in Russian (2-3 sentences)",
-  "suggested_questions": ["Question 1 in Russian", "Question 2 in Russian"],
+  "explanation": "Detailed explanation in {language_name} (2-3 sentences)",
+  "suggested_questions": ["Question 1 in {language_name}", "Question 2 in {language_name}"],
   "chart_type": "Bar"
 }}
 
 Rules:
-- headline: Direct answer to the question in Russian
-- insights: 2-3 key findings with significance (High/Medium/Low)
-- explanation: Detailed analysis in Russian
-- suggested_questions: 2-3 follow-up questions in Russian
-- chart_type: One of: Bar, Line, Pie, Table, Trend (or null if not applicable)
+- headline: Direct answer to the question in {language_name} - MUST be a complete, human-readable sentence that answers the question directly. For COUNT queries, format as "Всего найдено X транзакций" or "Найдено X транзакций". For SUM queries, format as "Общая сумма составляет X тенге" or similar.
+- insights: 2-3 key findings with significance (High/Medium/Low) in {language_name} - each insight should be meaningful and actionable. If result is a single number, provide insights about what this number means in context.
+- explanation: Detailed analysis in {language_name} - MUST be comprehensive (4-6 sentences), explaining what the data means, trends, patterns, and implications. Do NOT just repeat the numbers, provide context and interpretation. For single values, explain what this number means, compare it to expectations, provide context about typical values, and explain business implications.
+- suggested_questions: 2-3 follow-up questions in {language_name} that would help users explore the data further
+- chart_type: One of: Bar, Line, Pie, Table, Trend (or null if not applicable). Use Table ONLY when user explicitly asks for a table or when data has multiple rows with categories. For single aggregated values (COUNT, SUM, AVG without GROUP BY), ALWAYS use null.
 
-Return ONLY the JSON object, nothing else."#
+CRITICAL: 
+1. Your explanation MUST be detailed and human-readable. Don't just list numbers - explain what they mean, provide context, identify trends, and help users understand the significance of the data.
+2. If the result is a single aggregated value (like COUNT(*), SUM, AVG), focus on explaining what this number means in context, provide comparisons, and explain business implications. DO NOT suggest creating tables for single values.
+3. Always provide a natural language description that answers the user's question directly and comprehensively.
+4. For COUNT queries: Explain what the number represents, whether it's high or low compared to typical values, and what it means for the business.
+5. For SUM/AVG queries: Explain the total/average amount, provide context about typical values, and explain what this means."#
     )
 }
 
-fn parse_analysis_response(text: &str, data: &[serde_json::Value]) -> Result<AnalysisResult> {
+fn parse_analysis_response(text: &str, data: &[serde_json::Value], language: &Language) -> Result<AnalysisResult> {
     tracing::debug!("Raw analysis response: {}", text);
     
     // Try to extract JSON from the response
@@ -254,14 +269,19 @@ fn parse_analysis_response(text: &str, data: &[serde_json::Value]) -> Result<Ana
         .or_else(|| parsed["summary"].as_str().map(|s| s.to_string()))
         .unwrap_or_else(|| {
             // Fallback: generate headline from data
+            let (found_records, analysis_complete) = match language {
+                Language::Russian => ("Найдено {} записей", "Анализ завершен"),
+                Language::English => ("Found {} records", "Analysis complete"),
+                Language::Kazakh => ("{} жазба табылды", "Талдау аяқталды"),
+            };
             if let Some(first_row) = data.first() {
                 if let Some(obj) = first_row.as_object() {
                     if let Some(count) = obj.values().next() {
-                        return format!("Найдено {} записей", count);
+                        return found_records.replace("{}", &count.to_string());
                     }
                 }
             }
-            "Анализ завершен".to_string()
+            analysis_complete.to_string()
         });
     
     let insights = parsed["insights"]
@@ -292,12 +312,29 @@ fn parse_analysis_response(text: &str, data: &[serde_json::Value]) -> Result<Ana
         .map(|s| s.to_string())
         .unwrap_or_else(|| {
             // Fallback explanation
-            format!("Результат запроса содержит {} строк данных. {}", 
-                data.len(),
+            let (result_contains, value, first_values) = match language {
+                Language::Russian => (
+                    "Результат запроса содержит {} строк данных. {}",
+                    "Значение: {:?}",
+                    "Первые значения: {:?}",
+                ),
+                Language::English => (
+                    "Query result contains {} rows of data. {}",
+                    "Value: {:?}",
+                    "First values: {:?}",
+                ),
+                Language::Kazakh => (
+                    "Сұрау нәтижесі {} жол деректерді қамтиды. {}",
+                    "Мән: {:?}",
+                    "Алғашқы мәндер: {:?}",
+                ),
+            };
+            format!("{}{}", 
+                result_contains.replace("{}", &data.len().to_string()),
                 if data.len() == 1 {
-                    format!("Значение: {:?}", data[0])
+                    value.replace("{:?}", &format!("{:?}", data[0]))
                 } else {
-                    format!("Первые значения: {:?}", &data[..data.len().min(3)])
+                    first_values.replace("{:?}", &format!("{:?}", &data[..data.len().min(3)]))
                 }
             )
         });
@@ -310,10 +347,20 @@ fn parse_analysis_response(text: &str, data: &[serde_json::Value]) -> Result<Ana
                 .collect()
         })
         .unwrap_or_else(|| {
-            vec![
-                "Показать детализацию".to_string(),
-                "Сравнить с другими периодами".to_string(),
-            ]
+            match language {
+                Language::Russian => vec![
+                    "Показать детализацию".to_string(),
+                    "Сравнить с другими периодами".to_string(),
+                ],
+                Language::English => vec![
+                    "Show details".to_string(),
+                    "Compare with other periods".to_string(),
+                ],
+                Language::Kazakh => vec![
+                    "Толық мәліметтерді көрсету".to_string(),
+                    "Басқа кезеңдермен салыстыру".to_string(),
+                ],
+            }
         });
     
     let chart_type = parsed["chart_type"]

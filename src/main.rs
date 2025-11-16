@@ -1,6 +1,8 @@
 mod api;
 mod analysis;
 mod cache;
+mod chat;
+mod query_context;
 mod config;
 mod db;
 mod error;
@@ -55,7 +57,7 @@ async fn main() -> Result<()> {
     
     // Warm up LLM (optional, don't fail if LLM is not available)
     tracing::info!("Warming up LLM...");
-    match llm_client.generate_sql("How many transactions are there?").await {
+    match llm_client.generate_sql("How many transactions are there?", &[]).await {
         Ok(_) => tracing::info!("LLM ready!"),
         Err(e) => tracing::warn!("LLM warm-up failed (will continue anyway): {}", e),
     }

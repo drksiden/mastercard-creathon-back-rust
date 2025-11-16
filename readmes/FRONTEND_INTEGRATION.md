@@ -23,6 +23,12 @@
     {"transaction_currency": "KZT", "transaction_count": 11531433},
     {"transaction_currency": "AMD", "transaction_count": 609}
   ],
+  "table": "| transaction_currency | transaction_count |\n| --- | --- |\n| KZT | 11531433 |\n| AMD | 609 |",
+  "chart_data": {
+    "chart_type": "bar",
+    "labels": ["KZT", "AMD"],
+    "datasets": [{"label": "transaction_count", "data": [11531433.0, 609.0]}]
+  },
   "execution_time_ms": 24000,
   "row_count": 11,
   "cached": false,
@@ -41,6 +47,35 @@
     "data": [...]
   }
 }
+```
+
+## 📊 Готовые таблицы от бэкенда
+
+Бэкенд автоматически генерирует таблицы в **Markdown формате** и возвращает их в поле `table` ответа. Это удобно для:
+- Быстрого отображения данных без парсинга JSON
+- Экспорта в Markdown-редакторы
+- Отображения в Telegram боте
+- Использования с библиотеками типа `react-markdown`
+
+### Пример использования готовой таблицы:
+
+```tsx
+import ReactMarkdown from 'react-markdown';
+
+// В компоненте
+{result.table && (
+  <div>
+    <h3>Данные</h3>
+    <ReactMarkdown>{result.table}</ReactMarkdown>
+  </div>
+)}
+```
+
+Или просто как текст:
+```tsx
+{result.table && (
+  <pre style={{ fontFamily: 'monospace' }}>{result.table}</pre>
+)}
 ```
 
 ## 🚀 React интеграция
@@ -65,6 +100,15 @@ interface QueryResponse {
   question: string;
   sql: string;
   data: any[];
+  table?: string;  // Готовая Markdown таблица от бэкенда
+  chart_data?: {   // Данные для построения диаграммы
+    chart_type: string;
+    labels: string[];
+    datasets: Array<{
+      label: string;
+      data: number[];
+    }>;
+  };
   execution_time_ms: number;
   row_count: number;
   analysis?: {
