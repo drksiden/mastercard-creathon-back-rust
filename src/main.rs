@@ -75,7 +75,7 @@ async fn main() -> Result<()> {
     // Start server
     let addr = format!("{}:{}", config.host, config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    tracing::info!("🚀 Server running on http://{}", addr);
+    tracing::info!("Server running on http://{}", addr);
     
     axum::serve(listener, app).await?;
     
