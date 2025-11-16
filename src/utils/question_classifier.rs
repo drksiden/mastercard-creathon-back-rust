@@ -79,25 +79,44 @@ pub fn is_database_query(question: &str) -> bool {
         "pos_entry_mode", "способ оплаты",
     ];
     
-    // Ключевые слова, указывающие на обычный вопрос (не про БД)
+    // Ключевые слова, указывающие на обычный вопрос (не про БД) - ПРИОРИТЕТ
     let chat_keywords = [
-        "привет", "hello", "сәлем",
-        "как дела", "how are you", "қалың қалай",
-        "кто ты", "who are you", "сен кімсің",
-        "что умеешь", "what can you do", "не істей аласың",
+        "привет", "hello", "сәлем", "hi", "hey",
+        "как дела", "how are you", "қалың қалай", "how's it going",
+        "кто ты", "who are you", "сен кімсің", "what are you",
+        "что умеешь", "what can you do", "не істей аласың", "what can you",
         "помощь", "help", "көмек",
-        "спасибо", "thanks", "рахмет",
-        "пока", "bye", "сау бол",
+        "спасибо", "thanks", "рахмет", "thank you",
+        "пока", "bye", "сау бол", "goodbye",
+        "можешь", "can you", "can", "можешь ли", "але сен",
+        "вывести", "показать", "show", "display", "көрсет", "шығар", // Но только в контексте общих вопросов
+        "или нет", "or not", "немесе жоқ", // Вопросы типа "можешь или нет"
+        "расскажи", "tell me", "айт", "explain", "объясни", "түсіндір",
+        "что такое", "what is", "не дегеніміз", "что значит", "what does",
     ];
     
-    // Проверяем на обычные вопросы (приоритет)
-    for keyword in &chat_keywords {
-        if question_lower.contains(keyword) {
-            return false;
+        // Проверяем на обычные вопросы (ВЫСОКИЙ ПРИОРИТЕТ)
+        for keyword in &chat_keywords {
+            if question_lower.contains(keyword) {
+                // Если это вопрос типа "можешь вывести" или "можешь показать" БЕЗ упоминания транзакций/данных - обычный вопрос
+                if (*keyword == "можешь" || *keyword == "can you" || *keyword == "can") && 
+                   (question_lower.contains("вывести") || question_lower.contains("показать") || 
+                    question_lower.contains("show") || question_lower.contains("display")) {
+                    // Проверяем, есть ли упоминание транзакций или данных
+                    if !question_lower.contains("транзакц") && !question_lower.contains("transaction") && 
+                       !question_lower.contains("данн") && !question_lower.contains("data") &&
+                       !question_lower.contains("баз") && !question_lower.contains("database") {
+                        return false; // Это обычный вопрос, не SQL
+                    }
+                }
+                // Для остальных ключевых слов - точно обычный вопрос
+                if *keyword != "вывести" && *keyword != "показать" && *keyword != "show" && *keyword != "display" {
+                    return false;
+                }
+            }
         }
-    }
     
-    // Проверяем на SQL-запросы
+    // Проверяем на SQL-запросы (требуется больше доказательств)
     let mut db_score = 0;
     for keyword in &db_keywords {
         if question_lower.contains(keyword) {
@@ -105,14 +124,14 @@ pub fn is_database_query(question: &str) -> bool {
         }
     }
     
-    // Специальные паттерны для SQL-запросов
+    // Специальные паттерны для SQL-запросов (требуют комбинации с другими ключевыми словами)
     let sql_patterns = [
-        "показать", "show", "көрсет",
-        "вывести", "display", "шығар",
         "динамик", "dynamics", "тренд",
         "за последние", "last", "соңғы",
         "по дням", "by day", "күндер бойынша",
         "по месяцам", "by month", "айлар бойынша",
+        "статистика", "statistics", "статистика",
+        "распределение", "distribution", "таралу",
     ];
     
     let mut has_sql_pattern = false;
@@ -124,12 +143,7 @@ pub fn is_database_query(question: &str) -> bool {
         }
     }
     
-    // Если есть хотя бы одно ключевое слово про БД, считаем SQL-запросом
-    if db_score > 0 {
-        return true;
-    }
-    
-    // Если вопрос содержит "транзакции" + временной период - точно SQL
+    // Если вопрос содержит "транзакции" + временной период ИЛИ агрегацию - точно SQL
     if question_lower.contains("транзакц") && (
         question_lower.contains("день") ||
         question_lower.contains("месяц") ||
@@ -137,27 +151,37 @@ pub fn is_database_query(question: &str) -> bool {
         question_lower.contains("неделя") ||
         question_lower.contains("сегодня") ||
         question_lower.contains("вчера") ||
-        question_lower.contains("последние")
+        question_lower.contains("последние") ||
+        question_lower.contains("сколько") ||
+        question_lower.contains("топ") ||
+        question_lower.contains("объем") ||
+        question_lower.contains("средний")
     ) {
         return true;
     }
     
-    // Если вопрос очень короткий (1-2 слова) и нет ключевых слов - скорее всего обычный вопрос
+    // Если вопрос очень короткий (1-3 слова) - скорее всего обычный вопрос
     let word_count = question.split_whitespace().count();
-    if word_count <= 2 && db_score == 0 {
+    if word_count <= 3 && db_score <= 1 {
         return false;
     }
     
-    // По умолчанию считаем SQL-запросом (для безопасности)
-    // Но если есть вопросительные слова без ключевых слов БД - обычный вопрос
-    let question_words = ["что", "what", "не", "кто", "who", "кім", "как", "how", "қалай"];
+    // Вопросительные слова БЕЗ ключевых слов БД - обычный вопрос
+    let question_words = ["что", "what", "не", "кто", "who", "кім", "как", "how", "қалай", "почему", "why", "неге"];
     let has_question_word = question_words.iter().any(|w| question_lower.contains(w));
     
-    if has_question_word && db_score == 0 && !has_sql_pattern {
+    // Если есть вопросительное слово и мало ключевых слов БД - обычный вопрос
+    if has_question_word && db_score <= 1 && !has_sql_pattern {
         return false;
     }
     
-    true
+    // Если db_score достаточно высокий (>= 2) - SQL запрос
+    if db_score >= 2 {
+        return true;
+    }
+    
+    // По умолчанию - обычный вопрос (менее агрессивная классификация)
+    false
 }
 
 #[cfg(test)]

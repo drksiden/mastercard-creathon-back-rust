@@ -6,6 +6,7 @@ use crate::{
     db::pool::DbPool,
     llm::client::LLMClient,
     query_context::QueryContextManager,
+    utils::user_safety::UserSafetyManager,
 };
 use std::sync::Arc;
 
@@ -17,6 +18,7 @@ pub struct AppState {
     pub cache: Arc<MemoryCache<CachedQueryResult>>,
     pub sessions: Arc<SessionManager>,
     pub query_context: Arc<QueryContextManager>,
+    pub user_safety: Arc<UserSafetyManager>,
     pub config: Config,
 }
 
@@ -34,6 +36,7 @@ impl AppState {
         let cache = Arc::new(MemoryCache::new());
         let sessions = Arc::new(SessionManager::new(24)); // Сессии хранятся 24 часа
         let query_context = Arc::new(QueryContextManager::new(24)); // Контекст хранится 24 часа
+        let user_safety = Arc::new(UserSafetyManager::new(5, 24)); // Макс 5 предупреждений, бан на 24 часа
         
         Self {
             db,
@@ -42,6 +45,7 @@ impl AppState {
             cache,
             sessions,
             query_context,
+            user_safety,
             config,
         }
     }

@@ -24,16 +24,16 @@ impl AnalysisClient {
         question: &str,
         sql: &str,
         data: &[serde_json::Value],
+        language: &Language,
     ) -> Result<AnalysisResult> {
-        let language = detect_language(question);
         // Build prompt for analysis
-        let prompt = build_analysis_prompt(question, sql, data, &language);
+        let prompt = build_analysis_prompt(question, sql, data, language);
         
         // Generate analysis using LLM
         let analysis_text = self.generate_analysis(&prompt).await?;
         
         // Parse structured response
-        let result = parse_analysis_response(&analysis_text, data, &language)?;
+        let result = parse_analysis_response(&analysis_text, data, language)?;
         
         Ok(result)
     }

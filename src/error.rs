@@ -21,6 +21,9 @@ pub enum AppError {
     #[error("Configuration error: {0}")]
     #[allow(dead_code)]
     Config(String),
+    
+    #[error("{0}")]
+    BadRequest(String),
 }
 
 impl IntoResponse for AppError {
@@ -39,6 +42,9 @@ impl IntoResponse for AppError {
             }
             AppError::Config(msg) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, msg)
+            }
+            AppError::BadRequest(msg) => {
+                (StatusCode::BAD_REQUEST, msg)
             }
         };
         let body = Json(json!({

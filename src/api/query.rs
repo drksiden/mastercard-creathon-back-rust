@@ -23,7 +23,15 @@ pub async fn handle_query(
     tracing::info!("Received question: {} (user_id: {}, analysis: {}, cache: {})", 
         req.question, user_id, req.include_analysis, req.use_cache);
     
-    // 0. Basic validation - reject obvious jailbreak attempts
+    // 0. Проверка безопасности пользователя
+    let (is_safe, safety_message) = state.user_safety.check_message_safety(&user_id, &req.question).await;
+    if !is_safe {
+        if let Some(ban_msg) = safety_message {
+            return Err(AppError::BadRequest(ban_msg));
+        }
+    }
+    
+    // 0.1. Basic validation - reject obvious jailbreak attempts (дополнительная проверка)
     let question_lower = req.question.to_lowercase();
     let jailbreak_keywords = [
         "ignore previous",
@@ -39,23 +47,30 @@ pub async fn handle_query(
     for keyword in &jailbreak_keywords {
         if question_lower.contains(keyword) {
             tracing::warn!("Potential jailbreak attempt detected: {}", keyword);
-            // Still process, but LLM will ignore it due to prompt protection
+            // Записываем нарушение
+            if let Some(warning) = state.user_safety.record_violation(
+                &user_id,
+                crate::utils::user_safety::ViolationType::JailbreakAttempt,
+                format!("Обнаружена попытка jailbreak: {}", keyword),
+            ).await {
+                tracing::warn!("User {} received warning: {}", user_id, warning);
+            }
         }
     }
     
-    // Определяем язык
-    use crate::utils::language::detect_language;
-    let language = detect_language(&req.question);
+    // 0. Убираем префикс SQL из вопроса для обработки
+    let question_clean = req.question.trim();
+    let has_sql_prefix = question_clean.to_lowercase().starts_with("sql:");
     
-           // 0. Убираем префикс SQL из вопроса для обработки
-           let question_clean = req.question.trim();
-           let has_sql_prefix = question_clean.to_lowercase().starts_with("sql:");
-           
-           let question_clean = if question_clean.to_lowercase().starts_with("sql:") {
-               question_clean.split_once(':').map(|(_, rest)| rest.trim()).unwrap_or(question_clean)
-           } else {
-               question_clean
-           };
+    let question_clean = if question_clean.to_lowercase().starts_with("sql:") {
+        question_clean.split_once(':').map(|(_, rest)| rest.trim()).unwrap_or(question_clean)
+    } else {
+        question_clean
+    };
+    
+    // Определяем язык из очищенного вопроса (без префикса sql:)
+    use crate::utils::language::detect_language;
+    let language = detect_language(question_clean);
            
            // 1. Определяем, является ли вопрос запросом к БД или обычным вопросом
            // Если есть SQL префикс или это suggested question (обычно они SQL запросы), считаем SQL запросом
@@ -268,7 +283,7 @@ pub async fn handle_query(
     // Analysis is needed to provide human-readable text descriptions instead of just tables
     let analysis = if req.include_analysis || is_db_query {
         tracing::info!("Generating LLM analysis for question: {}", req.question);
-        match state.analysis.analyze_results(&req.question, &sql, &data).await {
+        match state.analysis.analyze_results(&req.question, &sql, &data, &language).await {
             Ok(analysis_result) => {
                 tracing::info!("Analysis generated successfully: headline='{}', insights={}", 
                     analysis_result.headline, analysis_result.insights.len());
